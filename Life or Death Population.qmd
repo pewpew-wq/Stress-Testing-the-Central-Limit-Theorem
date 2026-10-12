@@ -1,0 +1,196 @@
+---
+title: "Monte Carlo Investigation: Life/Death Mixture Population"
+author: "Pui Yin Lim"
+format:  
+  html:
+    toc: true
+    code-fold: true
+    embed-resources: true
+execute:
+  warning: false
+  message: false
+---
+
+## 1. Population & Theoretical Baseline
+
+- **Population Distribution:** A two-component mixture distribution inspired by real-world human age-at-death data (combining an early-life/infant mortality peak with an old-age senescence peak).
+- **Characteristics:** Highly irregular, bimodal parent population with finite variance.
+- **Theoretical Mean (**$\mu$): Weighted average of the two component means.
+- **Theoretical Standard Deviation (**$\sigma$): Finite mixture standard deviation combining within-component and between-component variance.
+- **Theoretical Standard Error (**$\text{SE}$): $\frac{\sigma}{\sqrt{n}}$
+
+## 2. Expectations Before Simulation
+
+The parent population is bimodal and highly irregular so small sample sizes should produce multi-modal sampling distributions reflecting the two distinct life stages. Although, because variance is finite, the CLT guarantees that as $n$ increases and the sample mean will wash out the bimodal mixture peaks. 
+
+## 3. Simulation Setup & Execution
+
+Simulating $B = 10,000$ Monte Carlo repetitions across sample sizes $n \in \{5, 30, 50, 1000\}$.
+
+```{r}
+#| label: tbl-mixture-sizes
+#| tbl-cap: "Rationale for Sample Size Selection (Life/Death Mixture Population)"
+#| tbl-colwidths: [15, 25, 60]
+
+library(tidyverse)
+library(knitr)
+
+# Define mixture parameters
+p1 <- 0.10; mu1 <- 5; sd1 <- 3
+p2 <- 0.90; mu2 <- 75; sd2 <- 8
+
+# Calculate overall population mean and variance (Law of Total Variance)
+mu_mix <- p1 * mu1 + p2 * mu2
+var_mix <- (p1 * (sd1^2 + mu1^2) + p2 * (sd2^2 + mu2^2)) - mu_mix^2
+sigma_mix <- sqrt(var_mix)
+
+sample_sizes <- c(5, 30, 50, 1000)
+theo_ses <- sigma_mix / sqrt(sample_sizes)
+
+mixture_explanation_table <- tibble(
+  Sample_Size = c("n = 5", "n = 30", "n = 50", "n = 1000"),
+  Theoretical_SE = round(theo_ses, 4),
+  Interpretation = c(
+    "A small sample size capturing distinct bimodal clusters from the two-component mixture, resulting in multi-modal sampling shapes.",
+    "The lower bound of the optimal testing range (n = 30 to 50), where averaging begins blending mixture components and satisfying the Central Limit Theorem.",
+    "The upper bound of the optimal range for testing normality, where visible bimodality dissolves into an approximately normal bell shape.",
+    "An asymptotic sample size demonstrating powerful variance contraction and complete erasure of parent population multimodality."
+  )
+)
+
+kable(
+  mixture_explanation_table, 
+  col.names = c("Sample Size", "Theoretical SE", "Description & Interpretation"),
+  align = c("c", "c", "l")
+)
+```
+
+Here, the Theoretical SE was calculated with two component normal mixture where:
+
+Component 1: has probability $p_1 = 0.10$, mean $\mu_1 = 5$, and variance $\sigma_1^2 = 3^2 = 9$
+
+Component 2: has probability $p_2 = 0.90$, mean $\mu_2 = 75$, and variance $\sigma_2^2 = 8^2 = 64$
+
+since calculating its exact theoretical standard error requires computing the overall mixture standard deviation ($\sigma$) first, and then scaling it by $\frac{1}{\sqrt{n}}$.
+
+```{r}
+#| label: mixture-sim
+#| message: false
+#| warning: false
+library(tidyverse)
+library(moments)
+
+student_id <- 5678
+set.seed(student_id)
+
+B <- 10000                  
+sample_sizes <- c(5, 30, 50, 1000) 
+
+# Simulate two-component mixture (e.g., 10% infant peak around age 5, 90% senescence peak around age 75)
+sim_data <- map_dfr(sample_sizes, function(n_val) {
+  sample_means <- replicate(B, {
+    component <- rbinom(n_val, size = 1, prob = 0.10) # 10% young, 90% old
+    ages <- ifelse(component == 1, rnorm(n_val, mean = 5, sd = 3), rnorm(n_val, mean = 75, sd = 8))
+    mean(ages)
+  })
+  tibble(
+    n = factor(n_val, levels = sample_sizes),
+    sample_mean = sample_means
+  )
+})
+```
+
+## 4. Visualization
+
+```{r}
+#| label: mixture-hist
+#| message: false
+#| warning: false
+
+ggplot(sim_data, aes(x = sample_mean)) +
+  geom_histogram(aes(y = after_stat(density)), bins = 35, fill = "indianred", color = "white", alpha = 0.8) +
+  facet_wrap(~n, scales = "free", labeller = label_both) +
+  theme_minimal() +
+  labs(
+    title = "Sampling Distribution of the Mean (Life/Death Mixture)",
+    subtitle = "Bimodal parent population transitions into normality within the n = 30 to 50 test range",
+    x = "Sample Mean (x̄)",
+    y = "Density"
+  )
+```
+
+As $n$ grows from $5$ to $1000$, the histograms demonstrate how averaging across a complex bimodal mixture washes away irregularity. Entering the $30$ to $50$ sample size range successfully initiates normal behavior for the sample means, yielding a clean bell curve via the Central Limit Theorem.
+
+```{r}
+#| label: mixture-qq
+#| message: false
+#| warning: false
+
+library(ggplot2)
+
+ggplot(sim_data, aes(sample = sample_mean)) +
+  geom_qq(alpha = 0.4, size = 1) +
+  geom_qq_line(color = "red", linetype = "dashed") +
+  facet_wrap(~ n, scales = "free") +
+  labs(
+    title = "Normal Q-Q Plots of Sample Means by Sample Size (n)",
+    subtitle = "Points align along the diagonal reference line as n reaches the 30–50 range",
+    x = "Theoretical Quantiles",
+    y = "Sample Quantiles"
+  ) +
+  theme_minimal()
+```
+
+## 5. Numerical Output
+
+```{r}
+#| label: mixture-table
+summary_table <- sim_data %>% 
+  group_by(n) %>% 
+  summarise(
+    Simulated_Mean = mean(sample_mean),
+    Simulated_SD = sd(sample_mean),
+    "Theoretical SE (σ/√n)" = sigma_mix / sqrt(as.numeric(as.character(first(n)))),
+    Skewness = moments::skewness(sample_mean),
+    Kurtosis = moments::kurtosis(sample_mean)
+  )
+
+knitr::kable(
+  summary_table, 
+  caption = "Comparison of Simulated vs. Theoretical Metrics for Life/Death Mixture Population",
+  digits = 4,
+  align = c("c", "c", "c", "c", "c")
+)
+```
+
+**Simulated Mean:** Stays centered around the combined expected mixture mean across all sample sizes.
+
+**Simulated SD:** Shrinks predictably as $n$ scales up, verifying standard error reduction even with a complex bimodal parent shape.
+
+**Skewness and Kurtosis:** Approach normal baseline values ($0$ and $3$) as sample size increases past the 30 to 50 threshold.
+
+## 6. In Summary
+
+**1. What does the original population distribution look like?**
+
+A real-world inspired bimodal mixture representing early-life mortality and old-age senescence.
+
+**2. How quickly does the sampling distribution become approximately normal?**
+
+Reaching the optimal $30$ to $50$ sample size range successfully triggers approximate normality for the sample means, overcoming the bimodal mixture components through the Central Limit Theorem.
+
+**3. How does the simulated mean compare with the theoretical mean?**
+
+The simulated means remain unbiased and centered correctly around the mixture expectation.
+
+**4. How does the simulated standard error behave?**
+
+It contracts smoothly with increasing $n$, matching finite variance expectations.
+
+**5. What evidence supports your conclusions?**
+
+Histograms transition from multi-modal shapes into smooth bell curves and Q-Q plots align with the diagonal reference line once sample sizes enter the $30$ to $50$ window.
+
+**6. What limitations or surprises did you observe?**
+
+The investigation highlighted how effectively the Central Limit Theorem masks severe multimodality once sample sizes reach the standard $30$ to $50$ testing threshold.

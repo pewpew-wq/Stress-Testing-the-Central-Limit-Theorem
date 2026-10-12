@@ -1,0 +1,179 @@
+---
+title: "Monte Carlo Investigation: The Six-Sided Die Population"
+author: "Pui Yin Lim"
+format:  
+  html:
+    toc: true
+    code-fold: true
+    embed-resources: true
+execute:
+  warning: false
+  message: false
+---
+
+## 1. Population & Theoretical Baseline
+
+- **Population Distribution:** Discrete Uniform Distribution representing a fair six-sided die, generated via `sample(1:6, size, replace = TRUE)`. Possible outcomes are $X \in \{1, 2, 3, 4, 5, 6\}$, each with probability $p = \frac{1}{6}$.
+- **Theoretical Mean (**$\mu$): $\mu = \frac{1 + 2 + 3 + 4 + 5 + 6}{6} = 3.5$
+- **Theoretical Standard Deviation (**$\sigma$): $\sigma = \sqrt{\frac{(1-3.5)^2 + \dots + (6-3.5)^2}{6}} = \sqrt{\frac{35}{12}} \approx 1.7078$
+- **Theoretical Standard Error (**$\text{SE}$): $\frac{\sigma}{\sqrt{n}} = \frac{\sqrt{35/12}}{\sqrt{n}}$
+
+## 2. Expectations Before Simulation
+
+The underlying population is discrete and heavily bounded so rather than continuous, it's expected that small sample sizes (like $n = 2$ or $n = 5$) will produce visibly jagged sampling distributions due to the limited combinations possible. However, since the variance is finite ($\sigma^2 \approx 2.9167$), the CLT fully applies so the distribution is expected to progressively smooth out into a bell shape as $n$ increases.
+
+## 3. Simulation Setup & Execution
+
+Simulating $B = 10,000$ Monte Carlo repetitions across sample sizes $n \in \{2, 5, 15, 30\}$ to observe how a discrete distribution converges to normality.
+
+```{r}
+#| label: tbl-die-sizes
+#| tbl-cap: "Rationale for Sample Size Selection (Six-Sided Die Population)"
+#| tbl-colwidths: [15, 25, 60]
+
+library(tidyverse)
+library(knitr)
+
+theo_sigma <- sqrt(35 / 12)
+
+# Create a data frame for the explanation table
+die_explanation_table <- tibble(
+  Sample_Size = c("n = 2", "n = 5", "n = 15", "n = 30"),
+  Theoretical_SE = c("≈ 1.2076", "≈ 0.7638", "≈ 0.4409", "≈ 0.3117"),
+  Interpretation = c(
+    "The minimum sample size showing strong discreteness. The sampling distribution exhibits multi-modal stepped patterns due to limited combinations, with the highest standard error.",
+    "A small sample size where discrete gaps are still visible, though intermediate fractional means begin to fill in, reducing the standard error.",
+    "An intermediate sample size approaching the CLT threshold. The stepped multi-modal shape largely dissolves into a symmetric bell curve.",
+    "The classical CLT threshold where the distribution achieves approximate normality. Discreteness is virtually gone, replaced by a smooth normal curve and low standard error."
+  )
+)
+
+kable(
+  die_explanation_table, 
+  col.names = c("Sample Size", "Theoretical SE", "Description & Interpretation"),
+  align = c("c", "c", "l")
+)
+```
+
+```{r}
+#| label: die-sim
+#| message: false
+#| warning: false
+library(tidyverse)
+library(moments)
+
+# Reproducible seed using last 4 digits of student ID
+student_id <- 5678
+set.seed(student_id)
+
+B <- 10000                  # Number of Monte Carlo simulations
+sample_sizes <- c(2, 5, 15, 30) # Sample sizes to investigate
+
+# Run simulation dynamically for all sample sizes using map_dfr
+sim_data <- map_dfr(sample_sizes, function(n_val) {
+  sample_means <- replicate(B, mean(sample(1:6, size = n_val, replace = TRUE)))
+  tibble(
+    n = factor(n_val, levels = sample_sizes),
+    sample_mean = sample_means
+  )
+})
+```
+
+## 4. Visualization
+
+```{r}
+#| label: die-hist
+#| message: false
+#| warning: false
+
+ggplot(sim_data, aes(x = sample_mean)) +
+  geom_histogram(aes(y = after_stat(density)), bins = 35, fill = "lightgreen", color = "white", alpha = 0.8) +
+  facet_wrap(~n, scales = "free", labeller = label_both) +
+  theme_minimal() +
+  labs(
+    title = "Sampling Distribution of the Mean (Six-Sided Die Population)",
+    subtitle = "Notice the transition from discrete, stepped multi-modal patterns at n = 2 to smooth bell shapes at n = 30",
+    x = "Sample Mean (x̄)",
+    y = "Density"
+  )
+```
+
+As $n$ grows, the discrete gaps between possible sample means fill in, and the distribution transitions from a seperated and gapped multi-peaked shape into a smooth bell curve, illustrating the Central Limit Theorem as variance contracts via $\text{SE} = \frac{\sigma}{\sqrt{n}}$.
+
+```{r}
+#| label: die-qq
+#| message: false
+#| warning: false
+
+library(ggplot2)
+
+ggplot(sim_data, aes(sample = sample_mean)) +
+  geom_qq(alpha = 0.4, size = 1) +
+  geom_qq_line(color = "red", linetype = "dashed") +
+  facet_wrap(~ n, scales = "free") +
+  labs(
+    title = "Normal Q-Q Plots of Sample Means by Sample Size (n)",
+    subtitle = "Points diverge at small n due to discreteness, but align closer to the line as n grows",
+    x = "Theoretical Quantiles",
+    y = "Sample Quantiles"
+  ) +
+  theme_minimal()
+```
+
+At small sample sizes ($n = 2$), the Q-Q plot points show stair-step departures from the theoretical normal line due to the discrete nature of the die rolls. As $n$ increases toward $30$, the points hug the reference line much more closely, confirming convergence to normality.
+
+## 5. Numerical Output
+
+```{r}
+#| label: die-table
+summary_table <- sim_data %>% 
+  group_by(n) %>% 
+  summarise(
+    Simulated_Mean = mean(sample_mean),
+    Simulated_SD = sd(sample_mean),
+    "Theoretical SE (σ/√n)" = theo_sigma / sqrt(as.numeric(as.character(first(n)))),
+    Skewness = moments::skewness(sample_mean),
+    Kurtosis = moments::kurtosis(sample_mean)
+  )
+
+knitr::kable(
+  summary_table, 
+  caption = "Comparison of Simulated vs. Theoretical Metrics for Six-Sided Die Population",
+  digits = 4,
+  align = c("c", "c", "c", "c", "c")
+)
+```
+
+**Simulated Mean:** Stays consistently centered around $\mu = 3.5$ across all sample sizes, confirming that the sample mean remains an unbiased estimator regardless of the discrete parent population.
+
+**Simulated SD vs. Theoretical SE (**$\frac{\sigma}{\sqrt{n}}$): As $n$ increases, the simulated standard deviation tracks the theoretical standard error formula, dropping from $\approx 1.2074$ at $n = 2$ down to $\approx 0.3117$ at $n = 30$, demonstrating clear variance contraction.
+
+**Skewness:** Stays very close to $0$ across all sample sizes because the discrete uniform distribution of a fair die is perfectly symmetric from the start.
+
+**Kurtosis:** Converges toward $3$ as $n$ increases and the distribution transitions from discrete steps into a standard bell-shaped normal curve.
+
+## 6. In Summary
+
+**1. What does the original population distribution look like?**
+
+The parent population is a Discrete Uniform Distribution ($X \in \{1, 2, 3, 4, 5, 6\}$), which is symmetric, bounded, discrete, and flat (each outcome has a probability of $\frac{1}{6}$).
+
+**2. How quickly does the sampling distribution become approximately normal?**
+
+It becomes normal gradually, due to the discrete nature of the die, small sample sizes ($n = 2, 5$) exhibit noticeable stepped or jagged multi-modal patterns that the Central Limit Theorem smooths out into an approximate normal distribution by $n = 15$ to $n = 30$.
+
+**3. How does the simulated mean compare with the theoretical mean?**
+
+The simulated means stay extremely close to $\mu = 3.5$ across all $n$ (within $\pm 0.005$), confirming unbiased behavior over $10,000$ iterations.
+
+**4. How does the simulated standard error compare with** $\text{SE}(\bar{x}) = \frac{\sigma}{\sqrt{n}}$?
+
+The simulated standard deviations track the theoretical standard error formula ($\text{SE} = \frac{\sqrt{35/12}}{\sqrt{n}}$) with high precision across all tested sample sizes.
+
+**5. What evidence supports your conclusion that the distribution is approximately normal?**
+
+Histograms transition from discrete bar groupings into smooth bell curves, Q-Q plot points increasingly hug the red diagonal line, skewness remains near $0$, and kurtosis converges toward $3$.
+
+**6. What limitations or surprises did you observe?**
+
+The primary observation is the visual "discreteness penalty" at low sample sizes ($n = 2$) where only specific fractional means are mathematically possible. As $n$ increases, the combination of outcomes created a near-continuous distribution densely populating the intermediate values, turning a discrete set of steps into a continuous, smooth bell-shaped normal curve.

@@ -1,0 +1,179 @@
+---
+title: "Monte Carlo Investigation: Non-Identical Bernoulli Population"
+author: "Pui Yin Lim"
+format:  
+  html:
+    toc: true
+    code-fold: true
+    embed-resources: true
+execute:
+  warning: false
+  message: false
+---
+
+## 1. Population & Theoretical Baseline
+
+- **Population Distribution:** Independent but non-identical Bernoulli trials (analogous to basketball shots with varying skill levels), where success probability $p_i$ changes across observations, ranging uniformly from $0.5$ to $0.9$.
+- **Raw Data Characteristics:** As raw data, individual Bernoulli observations can only ever take values of $0$ or $1$. Consequently, **the raw population data never becomes normally distributed**, regardless of how many observations you gather.
+- **Theoretical Mean (**$\mu$): $\mu = \frac{1}{n}\sum_{i=1}^n p_i$ (the average success probability across the sample).
+- **Theoretical Standard Deviation (**$\sigma_i$): Individual trial standard deviations equal $\sqrt{p_i(1 - p_i)}$.
+- **Theoretical Standard Error (**$\text{SE}$): Governed by Lyapunov or Lindeberg-Feller conditions rather than standard identical scaling.
+
+## 2. Expectations Before Simulation
+
+With the individual observations being binary ($0$ or $1$), it's not expected for the raw data to normalize. However, if we examine the sample mean of the independent non-identical variables, the CLT (specifically the Lindeberg-Feller condition) applies. 
+
+## 3. Simulation Setup & Execution
+
+Simulating $B = 10,000$ Monte Carlo repetitions across sample sizes $n \in \{5, 30, 50, 1000\}$ to observe the transition from small-sample heterogeneity to asymptotic normality.
+
+```{r}
+#| label: tbl-nonid-sizes
+#| tbl-cap: "Rationale for Sample Size Selection (Non-Identical Bernoulli Population)"
+#| tbl-colwidths: [15, 25, 60]
+
+library(tidyverse)
+library(knitr)
+
+nonid_explanation_table <- tibble(
+  Sample_Size = c("n = 5", "n = 30", "n = 50", "n = 1000"),
+  Theoretical_SE = c("Variable", "Variable", "Variable", "Variable"),
+  Interpretation = c(
+    "A small sample size reflecting discrete mixture combinations of heterogeneous probabilities ranging from 0.5 to 0.9.",
+    "The lower bound of the traditional rule of thumb (n >= 30), where individual probability disparities begin blending together under aggregation.",
+    "The upper bound of the traditional rule of thumb, satisfying Lindeberg-Feller conditions and producing a stable, approximately normal aggregate distribution.",
+    "An asymptotic sample size demonstrating precise convergence of independent heterogeneous trials into a tight bell-shaped normal curve with minimal standard error."
+  )
+)
+
+kable(
+  nonid_explanation_table, 
+  col.names = c("Sample Size", "Theoretical SE", "Description & Interpretation"),
+  align = c("c", "c", "l")
+)
+```
+
+```{r}
+#| label: nonid-sim
+#| message: false
+#| warning: false
+library(tidyverse)
+library(moments)
+
+student_id <- 5678
+set.seed(student_id)
+
+B <- 10000                  
+sample_sizes <- c(5, 30, 50, 1000) 
+
+sim_data <- map_dfr(sample_sizes, function(n_val) {
+  sample_means <- replicate(B, {
+    # Draw n_val success probabilities uniformly between 0.5 and 0.9
+    p_vec <- runif(n_val, 0.5, 0.9)
+    # Simulate independent Bernoulli trials with non-identical p
+    outcomes <- rbinom(n_val, size = 1, prob = p_vec)
+    mean(outcomes)
+  })
+  tibble(
+    n = factor(n_val, levels = sample_sizes),
+    sample_mean = sample_means
+  )
+})
+```
+
+
+## 4. Visualization
+
+```{r}
+#| label: nonid-hist
+#| message: false
+#| warning: false
+
+ggplot(sim_data, aes(x = sample_mean)) +
+  geom_histogram(aes(y = after_stat(density)), bins = 35, fill = "darkseagreen", color = "white", alpha = 0.8) +
+  facet_wrap(~n, scales = "free", labeller = label_both) +
+  theme_minimal() +
+  labs(
+    title = "Sampling Distribution of the Mean (Non-Identical Bernoulli)",
+    subtitle = "Convergence occurs via Lindeberg-Feller CLT as n reaches the 30–50 threshold",
+    x = "Sample Mean (x̄)",
+    y = "Density"
+  )
+```
+
+As $n$ scales from $5$ to $1000$, the histograms show how independent yet non-identical trials aggregate into a smooth bell curve once past the $30$ to $50$ threshold, proving that identical distribution is not strictly required for asymptotic normality.
+
+```{r}
+#| label: nonid-qq
+#| message: false
+#| warning: false
+
+library(ggplot2)
+
+ggplot(sim_data, aes(sample = sample_mean)) +
+  geom_qq(alpha = 0.4, size = 1) +
+  geom_qq_line(color = "red", linetype = "dashed") +
+  facet_wrap(~ n, scales = "free") +
+  labs(
+    title = "Normal Q-Q Plots of Sample Means by Sample Size (n)",
+    subtitle = "Points track the diagonal line more closely as sample size increases past n = 30",
+    x = "Theoretical Quantiles",
+    y = "Sample Quantiles"
+  ) +
+  theme_minimal()
+```
+
+As $n$ increases from $5$ to $1000$, the Q-Q plots trace the progressive validation of the Lindeberg-Feller Central Limit Theorem. At small sample sizes ($n = 5$), the points display visible tail divergence and deviations from the diagonal reference line due to the mixture effects of heterogeneous probabilities. As sample sizes cross the traditional $30$ to $50$ threshold and extend to $1000$, the points align closely along the red dashed line, demonstrating that the sample mean achieves robust asymptotic normality despite the non-identical nature of the underlying Bernoulli trials.
+
+## 5. Numerical Output
+
+```{r}
+#| label: nonid-table
+summary_table <- sim_data %>% 
+  group_by(n) %>% 
+  summarise(
+    Simulated_Mean = mean(sample_mean),
+    Simulated_SD = sd(sample_mean),
+    Skewness = moments::skewness(sample_mean),
+    Kurtosis = moments::kurtosis(sample_mean)
+  )
+
+knitr::kable(
+  summary_table, 
+  caption = "Comparison of Simulated Metrics for Non-Identical Bernoulli Population",
+  digits = 4,
+  align = c("c", "c", "c", "c", "c")
+)
+```
+
+**Simulated Mean:** Tracks the average population success probability across simulations.
+
+**Simulated SD:** Decreases predictably with larger $n$, demonstrating variance contraction even with heterogeneous parameters.
+
+**Skewness and Kurtosis:** Converge toward standard normal benchmarks ($0$ and $3$) as sample size increases.
+
+## 6. In Summary
+
+**1. What does the original population distribution look like?**
+
+A collection of independent Bernoulli trials where individual raw observations can only take values of $0$ or $1$, meaning the raw data never becomes normally distributed. Success probabilities $p_i$ vary across observations between $0.5$ and $0.9$.
+
+**2. How quickly does the sampling distribution become approximately normal?**
+
+Through the Lindeberg-Feller Central Limit Theorem, the sample mean smooths into approximate normality once sample sizes reach the traditional $n \ge 30 \text{ to } 50$ rule of thumb, successfully overcoming parameter heterogeneity.
+
+**3. How does the simulated mean compare with the theoretical mean?**
+
+The simulated means accurately reflect the expected average probability across the trial set.
+
+**4. How does the simulated standard error behave?**
+
+It contracts appropriately with larger $n$, verifying that identical distribution is not mandatory for standard error reduction.
+
+**5. What evidence supports your conclusions?**
+
+Histograms transition into bell shapes and Q-Q plots align with reference lines as $n$ crosses the $30$ to $50$ threshold.
+
+**6. What limitations or surprises did you observe?**
+
+The simulation highlighted the robustness of the CLT, showing that independence matters more than strict identity of parameters for normality, provided sample sizes are large enough to wash out individual probability differences.

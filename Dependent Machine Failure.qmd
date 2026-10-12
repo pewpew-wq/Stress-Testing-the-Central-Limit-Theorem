@@ -1,0 +1,191 @@
+---
+title: "Monte Carlo Investigation: Dependent Machine Failure Population"
+author: "Pui Yin Lim"
+format:  
+  html:
+    toc: true
+    code-fold: true
+    embed-resources: true
+execute:
+  warning: false
+  message: false
+---
+
+## 1. Population & Theoretical Baseline
+
+- **Population Distribution:** Dependent failure process featuring AR(1)-style serial dependence between consecutive observations, with baseline rate parameter $\lambda = 1$.
+- **Characteristics:** Unlike standard Monte Carlo setups, observations violate the independent and identically distributed (i.i.d.) assumption because each failure state depends on the outcome of the preceding trial.
+- **Theoretical Mean (**$\mu$): $\mu = 1$
+- **Theoretical Standard Deviation (**$\sigma$): Modified by serial autocorrelation (e.g., inflated variance depending on the autoregressive coefficient).
+- **Theoretical Standard Error (**$\text{SE}$): Adjusted for dependence structure, where autocorrelation increases effective standard error compared to independent trials.
+
+## 2. Expectations Before Simulation
+
+The successive observations are correlated (AR(1)-style dependence), the information contributed by each additional data point in a sample is reduced compared to independent samples.
+
+While the Central Limit Theorem can still apply under weak dependence conditions (like mixing processes), the presence of serial correlation likely will inflate the true standard error and may slow down the rate of convergence to normality.
+
+## 3. Simulation Setup & Execution
+
+We will simulate $B = 10,000$ Monte Carlo repetitions across sample sizes $n \in \{5, 30, 100, 1000\}$ to observe the impact of dependent data on sampling distributions.
+
+```{r}
+#| label: tbl-dep-sizes
+#| tbl-cap: "Rationale for Sample Size Selection (Dependent Failure Population)"
+#| tbl-colwidths: [15, 25, 60]
+
+library(tidyverse)
+library(knitr)
+
+# Define AR(1) parameters for theoretical SE calculation
+phi <- 0.5
+sigma_innov <- 0.5
+# Asymptotic AR(1) SE formula: sigma_innov / (sqrt(n) * (1 - phi))
+
+dep_explanation_table <- tibble(
+  Sample_Size = c("n = 5", "n = 30", "n = 100", "n = 1000"),
+  Theoretical_SE = c("≈ 0.4472", "≈ 0.1826", "≈ 0.1000", "≈ 0.0316"),
+  Interpretation = c(
+    "A small sample size heavily influenced by short-term autocorrelation spikes, producing high variability and estimation instability.",
+    "An intermediate sample size where serial dependence still exerts lingering effects, evaluated against the AR(1) theoretical SE benchmark.",
+    "A larger sample size where averaging mitigates local shocks, tracking the theoretical AR(1) standard error closely.",
+    "An asymptotic sample size demonstrating precise convergence to the theoretical AR(1) standard error formula under positive serial correlation."
+  )
+)
+
+kable(
+  dep_explanation_table, 
+  col.names = c("Sample Size", "Theoretical SE", "Description & Interpretation"),
+  align = c("c", "c", "l")
+)
+```
+
+Here, the Theoretical SE was determined with the AR(1) process to derive the exact theoretical standard error of the sample mean for a given sample size $n$:$$\text{SE}(\bar{x}) = \frac{\sigma_\epsilon}{\sqrt{n}(1 - \phi)}$$By plugging in our parameters ($\sigma_\epsilon = 0.5$ and $\phi = 0.5$), this simplifies to $\text{SE}(\bar{x}) = \frac{0.5}{\sqrt{n}(0.5)} = \frac{1}{\sqrt{n}}$ since originally the dependent data breaks the classic standard error formula.
+
+```{r}
+#| label: dep-sim
+#| message: false
+#| warning: false
+library(tidyverse)
+library(moments)
+
+student_id <- 5678
+set.seed(student_id)
+
+B <- 10000                  
+sample_sizes <- c(5, 30, 100, 1000) 
+
+# Simulate AR(1)-style dependent series for demonstration
+sim_data <- map_dfr(sample_sizes, function(n_val) {
+  sample_means <- replicate(B, {
+    # Simple AR(1) generation with phi = 0.5 around mean 1
+    x <- numeric(n_val)
+    x[1] <- rexp(1, rate = 1)
+    phi <- 0.5
+    for(i in 2:n_val) {
+      x[i] <- (1 - phi) * 1 + phi * x[i-1] + rnorm(1, 0, 0.5)
+    }
+    mean(x)
+  })
+  tibble(
+    n = factor(n_val, levels = sample_sizes),
+    sample_mean = sample_means
+  )
+})
+```
+
+## 4. Visualization
+
+```{r}
+#| label: dep-hist
+#| message: false
+#| warning: false
+
+ggplot(sim_data, aes(x = sample_mean)) +
+  geom_histogram(aes(y = after_stat(density)), bins = 35, fill = "steelblue", color = "white", alpha = 0.8) +
+  facet_wrap(~n, scales = "free", labeller = label_both) +
+  theme_minimal() +
+  labs(
+    title = "Sampling Distribution of the Mean (Dependent Failure Population)",
+    subtitle = "AR(1) serial dependence alters spread and convergence compared to i.i.d. baselines",
+    x = "Sample Mean (x̄)",
+    y = "Density"
+  )
+```
+
+As $n$ grows from $5$ to $1000$, the histograms show how serial dependence modifies variance contraction and because consecutive values share information, the effective sample size is lower than $n$, leading to broader distributions than an independent process would produce.
+
+```{r}
+#| label: dep-qq
+#| message: false
+#| warning: false
+
+library(ggplot2)
+
+ggplot(sim_data, aes(sample = sample_mean)) +
+  geom_qq(alpha = 0.4, size = 1) +
+  geom_qq_line(color = "red", linetype = "dashed") +
+  facet_wrap(~ n, scales = "free") +
+  labs(
+    title = "Normal Q-Q Plots of Sample Means by Sample Size (n)",
+    subtitle = "Tail behavior reflects autocorrelation effects across sample sizes",
+    x = "Theoretical Quantiles",
+    y = "Sample Quantiles"
+  ) +
+  theme_minimal()
+```
+
+## 5. Numerical Output
+
+```{r}
+#| label: dep-table
+summary_table <- sim_data %>% 
+  group_by(n) %>% 
+  summarise(
+    Simulated_Mean = mean(sample_mean),
+    Simulated_SD = sd(sample_mean),
+    "Theoretical SE" = sigma_innov / (sqrt(as.numeric(as.character(first(n)))) * (1 - phi)),
+    Skewness = moments::skewness(sample_mean),
+    Kurtosis = moments::kurtosis(sample_mean)
+  )
+
+knitr::kable(
+  summary_table, 
+  caption = "Comparison of Simulated vs. Theoretical AR(1) Metrics for Dependent Failure Population",
+  digits = 4,
+  align = c("c", "c", "c", "c", "c")
+)
+```
+
+**Simulated Mean:** Remains centered near the expected baseline, though serial correlation broadens observation dispersion.
+
+**Simulated SD:** Exhibits variance inflation relative to standard $\frac{\sigma}{\sqrt{n}}$ formulas due to positive autocorrelation between adjacent trials.
+
+**Skewness and Kurtosis:** Reflect structural persistence introduced by the AR(1) dependence parameter.
+
+## 6. In Summary
+
+**1. What does the original population distribution look like?**
+
+The parent process incorporates an AR(1) style dependence structure where each failure event depends on its predecessor, violating standard i.i.d. assumptions.
+
+**2. How quickly does the sampling distribution become approximately normal?**
+
+This distribution was slower than independent processes as autocorrelation creates redundancy in the sample data which required larger sample sizes to achieve stable asymptotic normality.
+
+**3. How does the simulated mean compare with the theoretical mean?**
+
+The simulated means remain unbiased overall, but exhibit higher sample-to-sample variability due to dependence.
+
+**4. How does the simulated standard error compare with traditional formulas?**
+
+Standard errors are inflated compared to the naive $\frac{\sigma}{\sqrt{n}}$ calculation because serial correlation reduces the effective number of independent observations.
+
+**5. What evidence supports your conclusions?**
+
+Histograms and QQ plots revealed wider spreads and altered tail characteristics caused by persistence in the failure process.
+
+**6. What limitations or surprises did you observe?**
+
+The main takeaway from this analysis is that ignoring dependence leads to underestimated standard errors and overly optimistic confidence intervals in real-world reliability engineering as shown in this population.
+

@@ -1,0 +1,32 @@
+***Stress-Testing the Central Limit Theorem***
+
+The entirety of this project is to analyze the behavior of sampling distributions and the Central Limit Theorem within the Monte Carlo Investigation. Utilizing R and Quarto, the standardized analysis of the sample means across theoretical and real-world population models becomes approximately normal at sample size $n$ throughout the following populations:
+
+- Standard Normal
+- Binomial Small
+- Cauchy
+- Dependent Machine Failure
+- Exponential
+- Life or Death Population
+- Non Identical Bernoulli
+- Six-Sided Die
+
+By investigating indicators of normalcy or ab-normalcy with:
+
+- *Symmetry and Discreteness* in the Standard Normal, Six-Sided Die, and Binomial Populations
+
+- *Skewness* in the Exponential (right skew) and Cauchy (infinite variance)
+
+- *Dependence* in the Machine Failure processes (AR(1)) and Non-Identical Bernoulli trials (varying success probabilities $p_i$)
+
+- *Real-World Complexity* in the Life/Death Mixture populations in bimodal infant mortality to old-age senescence peaks.
+
+Methods used to investigate includes:
+
+- *Simulation Engine* with the tidyverse and moments library to execute $B=10,000$ Monte Carlo repetitions per sample size.
+
+- *Sample Size Tiers* that structured progression ranging from small $n=5$ to known CLT thresholds $n=30$ up to asymptotic variance contraction at $n=1000$
+
+- *Analytical Framework* where every population module compares empirical simulation outputs against theoretical baselines like a mixture variance and AR(1) standard error formulas with visuals of QQ plots and Histograms
+
+As a result, it was found that the universal rule of thumb given by the CLT that at sample size $n=30$ is not absolute. Exceptions to normality were showcased in larger sample sizes like $n \ge 100$ to overcome right skew in the Exponential Population.

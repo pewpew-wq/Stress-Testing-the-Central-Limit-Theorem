@@ -1,0 +1,190 @@
+---
+title: "Monte Carlo Investigation: The Standard Normal Population"
+author: "Pui Yin Lim"
+format: 
+  html:
+    toc: true
+    code-fold: true
+    embed-resources: true
+execute:
+  warning: false
+  message: false
+---
+
+## 1. Population & Theoretical Baseline
+
+- **Population Distribution:** Standard Normal Distribution, $X \sim N(\mu = 0, \sigma = 1)$, generated via `rnorm()`. This distribution is continuous, perfectly symmetric, unimodal, and bell-shaped.
+- **Theoretical Mean (**$\mu$): $0$
+- **Theoretical Standard Deviation (**$\sigma$): $1$
+- **Theoretical Standard Error (**$\text{SE}$): $\frac{\sigma}{\sqrt{n}} = \frac{1}{\sqrt{n}}$
+
+## 2. Expectations Before Simulation
+
+Since the underlying population is already strictly normal, the sampling distribution of the sample mean $\bar{X}$ is mathematically exact: $\bar{X} \sim N\left(0, \frac{1}{\sqrt{n}}\right)$ for any sample size $n$.
+
+Unlike skewed or heavy-tailed distributions, it's expected for the sampling distribution to look normal even at smaller sample sizes. The primary change as $n$ increases will not be in shape but a contraction of spread which is the standard error shrinking.
+
+## 3. Simulation Setup & Execution
+
+Simulating $B = 10,000$ Monte Carlo repetitions across sample sizes $n \in \{2, 30, 100, 1000\}$.
+
+```{r}
+#| label: tbl-normality
+#| tbl-cap: "Impact of Sample Size on Spread"
+#| tbl-colwidths: [15, 25, 60]
+
+library(tidyverse)
+library(knitr)
+
+# Create a data frame for the explanation table
+normality_explanation_table <- tibble(
+  Sample_Size = c("n = 2", "n = 30", "n = 100", "n = 1000"),
+  Theoretical_SE = c("≈ 0.7071", "≈ 0.1826", "≈ 0.1000", "≈ 0.0316"),
+  Interpretation = c(
+    "The widest distribution, shows at the smallest possible sample size, the distribution is already bell-shaped and symmetric with the highest standard error.",
+    "The classic rule-of-thumb cutoff in statistics as the standard error drops, showing a clear, moderate contraction of spread compared to n = 2.",
+    "Bridges the gap to show exponential tightening, and the standard error drops further making the bell curve visibly narrower and taller.",
+    "An instance of extreme variance contraction, the histogram becomes a sharp, needle-like peak centered tightly around μ = 0."
+  )
+)
+
+kable(
+  normality_explanation_table, 
+  col.names = c("Sample Size", "Theoretical SE", "Description & Interpretation"),
+  align = c("c", "c", "l")
+)
+```
+
+```{r}
+#| label: std-normal-sim
+#| message: false
+#| warning: false
+library(tidyverse)
+library(moments)
+
+# Reproducible seed using last 4 digits of student ID
+student_id <- 5678
+set.seed(student_id)
+
+B <- 10000                      # Number of Monte Carlo simulations
+sample_sizes <- c(2, 30, 100, 1000) # Sample sizes to investigate
+
+# Run simulation dynamically for all sample sizes using map_dfr
+sim_data <- map_dfr(sample_sizes, function(n_val) {
+  sample_means <- replicate(B, mean(rnorm(n_val, mean = 0, sd = 1)))
+  tibble(
+    n = factor(n_val, levels = sample_sizes),
+    sample_mean = sample_means
+  )
+})
+```
+
+## 4. Visualizing Sampling Distribution
+
+```{r}
+
+#| label: std-normal-hist
+#| message: false
+#| warning: false
+
+# Create a helper data frame for the theoretical normal curves per facet
+curve_data <- tibble(n = c(2, 30, 100, 1000)) %>%
+  group_by(n) %>%
+  do({
+    n_val <- .$n
+    se <- 1 / sqrt(n_val)
+    tibble(
+      x = seq(-4 * se, 4 * se, length.out = 100),
+      y = dnorm(x, mean = 0, sd = se)
+    )
+  }) %>%
+  mutate(n = factor(n, levels = c(2, 30, 100, 1000)))
+
+ggplot(sim_data, aes(x = sample_mean)) +
+  geom_histogram(aes(y = after_stat(density)), bins = 40, fill = "skyblue", color = "white", alpha = 0.8) +
+  geom_line(data = curve_data, aes(x = x, y = y), color = "darkred", linewidth = 1) +
+  facet_wrap(~n, scales = "free", labeller = label_both) +
+  theme_minimal() +
+  labs(
+    title = "Sampling Distribution of the Mean (Standard Normal Population)",
+    subtitle = "Red curve represents the theoretical normal distribution N(0, 1/√n)",
+    x = "Sample Mean (x̄)",
+    y = "Density"
+  )
+```
+
+As $n$ grows the width of the bell curve shrinks and the peak increases in height indicating the variance contraction via ($\text{SE} = \frac{\sigma}{\sqrt{n}}$). The spread tightens around the mean ($\mu = 0$) but the bell shape remains constant.
+
+```{r}
+library(ggplot2)
+
+# Ensure sim_data contains the individual sample means and their corresponding n values
+ggplot(sim_data, aes(sample = sample_mean)) +
+  geom_qq(alpha = 0.5, size = 1) +
+  geom_qq_line(color = "red", linetype = "dashed") +
+  facet_wrap(~ n, scales = "free") +
+  labs(
+    title = "Normal Q-Q Plots of Sample Means by Sample Size (n)",
+    subtitle = "Points closely follow the diagonal line across all values of n",
+    x = "Theoretical Quantiles",
+    y = "Sample Quantiles"
+  ) +
+  theme_minimal()
+```
+
+To indicate normalcy, the qq plot points should hug the reference line which across all samples sizes n, the points track with nearly no tail divergence. Skewed populations with small sample sizes at $n=2$ or $n=5$ would have tail deviations. This proves normality, the intrinsic baseline, doesn't require a large convergence period as the CLT typically states for non-normal data.
+
+## 5. Numerical Output
+
+```{r}
+#| label: std-normal-table
+summary_table <- sim_data %>% 
+  group_by(n) %>% 
+  summarise(
+    Simulated_Mean = mean(sample_mean),
+    Simulated_SD = sd(sample_mean),
+    "Theoretical SE (σ/√n)" = 1 / sqrt(as.numeric(as.character(first(n)))),
+    Skewness = moments::skewness(sample_mean),
+    Kurtosis = moments::kurtosis(sample_mean)
+  )
+
+knitr::kable(
+  summary_table, 
+  caption = "Comparison of Simulated vs. Theoretical Metrics for Standard Normal Population",
+  digits = 4
+)
+```
+
+**Simulated Mean:** Stays consistently centered around $\mu=0$ across all sample sizes, confirming that the sample mean is an unbiased estimator. Indicating that the sample mean is an unbiased estimator regardless of sample size, the center of the sampling distribution doesn't drift.
+
+**Simulated SD vs. Theoretical SE (**$\frac{\sigma}{\sqrt{n}}$): As $n$ increases, the standard error shrinks from $\approx 0.7071$ at $n = 2$ down to $\approx 0.0316$ at $n = 1000$ matching the theoretical $\text{SE} = \frac{\sigma}{\sqrt{n}}$ demonstrating variance contraction, while the shape stays normal, larger samples estimate more precisely clustered around $\mu$.
+
+**Skewness:** The values across all sample sizes stay nearly 0 indicating a symmetric sampling distribution even at $n=2$.
+
+**Kurtosis:** The values stay around 3 confirming the distribution maintains the normal bell shape and tail weight without extreme outliers.
+
+## 6. In Summary
+
+**1. What does the original population distribution look like?**
+
+The parent population is a Standard Normal Distribution ($\mu = 0$, $\sigma = 1$), which is continuous, perfectly symmetric, unimodal, and bell-shaped.
+
+**2. How quickly does the sampling distribution become approximately normal?**
+
+Instantly (at $n = 2$). While typically a small sample size of 2 is insufficient to indicate normalcy because the underlying population is already normal, the sampling distribution is exact for any sample size $n$ without requiring a large-sample convergence period.
+
+**3. How does the simulated mean compare with the theoretical mean?**
+
+The simulated means stay extremely close to $\mu = 0$ across all tested sample sizes (within $\pm 0.005$), confirming unbiased behavior over $10,000$ iterations even up to $n = 1000$.
+
+**4. How does the simulated standard error compare with** $\text{SE}(\bar{x}) = \frac{\sigma}{\sqrt{n}}$?
+
+The simulated standard deviations track the theoretical standard error formula ($\text{SE} = \frac{\sigma}{\sqrt{n}}$) with high precision across all ranges (e.g., contracting from $\approx 0.7071$ at $n = 2$ down to an extreme asymptotic limit of $\approx 0.0316$ at $n = 1000$).
+
+**5. What evidence supports your conclusion that the distribution is approximately normal?**
+
+Firstly, the histograms display consistent bell shapes and skewness values remain near $0$. Then, the kurtosis stays close to $3$, and the spread scales inversely with $\sqrt{n}$ across all sample sizes which are all signs of non sporadic distribution.
+
+**6. What limitations or surprises did you observe?**
+
+No statistical surprises or assumption violations occurred. Scaling up to large sample sizes like $n = 1000$ vividly demonstrates extreme variance contraction, where the histogram transforms into a sharp, needle-like peak centered tightly around $\mu = 0$ while preserving its underlying normal shape.

@@ -1,0 +1,175 @@
+---
+title: "Monte Carlo Investigation: The Cauchy Population"
+author: "Pui Yin Lim"
+format:  
+  html:
+    toc: true
+    code-fold: true
+    embed-resources: true
+execute:
+  warning: false
+  message: false
+---
+
+## 1. Population & Theoretical Baseline
+
+- **Population Distribution:** Cauchy Distribution with location $x_0 = 0$ and scale $\gamma = 1$, generated via `rcauchy(n, location = 0, scale = 1)`.
+- **Characteristics:** It is a continuous, symmetric, bell-shaped-looking distribution with **extremely heavy tails**.
+- **Theoretical Mean (**$\mu$): **Undefined** (infinite expectation)
+- **Theoretical Standard Deviation (**$\sigma$): **Undefined** (infinite variance)
+- **Theoretical Standard Error (**$\text{SE}$): **Undefined** (does not scale with $\frac{1}{\sqrt{n}}$)
+
+## 2. Expectations Before Simulation
+
+Unlike normal, uniform, or exponential distributions, increasing the sample size $n$ (e.g., from $n = 5$ to $n = 50$) shouldn't cause the sampling distribution to become normal or for the spread to contract. Instead, the sample mean $\bar{X}$ follows the same Cauchy distribution as the individual observations meaning extreme outliers might distort the average across all sample sizes $n$.
+
+## 3. Simulation Setup & Execution
+
+Simulating $B = 10,000$ Monte Carlo repetitions across sample sizes $n \in \{5, 10, 30, 50\}$ to demonstrate the total failure of the Central Limit Theorem when variance is infinite.
+
+```{r}
+#| label: tbl-cauchy-sizes
+#| tbl-cap: "Rationale for Sample Size Selection (Cauchy Population)"
+#| tbl-colwidths: [15, 25, 60]
+
+library(tidyverse)
+library(knitr)
+
+# Create a data frame for the explanation table
+cauchy_explanation_table <- tibble(
+  Sample_Size = c("n = 5", "n = 10", "n = 30", "n = 50"),
+  Theoretical_SE = c("Undefined", "Undefined", "Undefined", "Undefined"),
+  Interpretation = c(
+    "A small sample size where extreme Cauchy outliers frequently pull the sample mean in drastic directions, producing massive dispersion.",
+    "An intermediate sample size. Because the population mean does not exist, increasing n fails to stabilize or narrow the spread of estimates.",
+    "A larger sample size highlighting the failure of the Central Limit Theorem; extreme values continue to dominate rather than average out.",
+    "The maximum investigated sample size, demonstrating that the sampling distribution retains its heavy-tailed Cauchy shape and infinite variance without converging to normal."
+  )
+)
+
+kable(
+  cauchy_explanation_table, 
+  col.names = c("Sample Size", "Theoretical SE", "Description & Interpretation"),
+  align = c("c", "c", "l")
+)
+```
+
+```{r}
+#| label: cauchy-sim
+#| message: false
+#| warning: false
+library(tidyverse)
+library(moments)
+
+# Reproducible seed using last 4 digits of student ID
+student_id <- 5678
+set.seed(student_id)
+
+B <- 10000                  # Number of Monte Carlo simulations
+sample_sizes <- c(5, 10, 30, 50) # Sample sizes to investigate
+
+# Run simulation dynamically for all sample sizes using map_dfr
+sim_data <- map_dfr(sample_sizes, function(n_val) {
+  sample_means <- replicate(B, mean(rcauchy(n_val, location = 0, scale = 1)))
+  tibble(
+    n = factor(n_val, levels = sample_sizes),
+    sample_mean = sample_means
+  )
+})
+```
+
+## 4. Visualization
+
+```{r}
+#| label: cauchy-hist
+#| message: false
+#| warning: false
+
+ggplot(sim_data, aes(x = sample_mean)) +
+  geom_histogram(aes(y = after_stat(density)), bins = 40, fill = "purple", color = "white", alpha = 0.8) +
+  facet_wrap(~n, scales = "free", labeller = label_both) +
+  theme_minimal() +
+  labs(
+    title = "Sampling Distribution of the Mean (Cauchy Population)",
+    subtitle = "Notice that heavy tails and extreme outliers persist even as n grows to 50",
+    x = "Sample Mean (x̄)",
+    y = "Density"
+  )
+```
+
+In the table the mean is undefined for Cauchy data as the sample median does converge nicely to a normal distribution as $n$ increases thus the output shown above. However, as $n$ grows from $5$ to $50$, the histograms illustrate the absence of variance contraction. Unlike well-behaved distributions where spreading narrows with larger samples, the Cauchy sample means maintain erratic, massive bounds due to infinite variance.
+
+```{r}
+#| label: cauchy-qq
+#| message: false
+#| warning: false
+
+library(ggplot2)
+
+ggplot(sim_data, aes(sample = sample_mean)) +
+  geom_qq(alpha = 0.4, size = 1) +
+  geom_qq_line(color = "red", linetype = "dashed") +
+  facet_wrap(~ n, scales = "free") +
+  labs(
+    title = "Normal Q-Q Plots of Sample Means by Sample Size (n)",
+    subtitle = "Points severely deviate from the diagonal line in the tails across all values of n",
+    x = "Theoretical Quantiles",
+    y = "Sample Quantiles"
+  ) +
+  theme_minimal()
+```
+
+The Q-Q plots show severe, dramatic departures from the red reference line across all sample sizes. The extreme tail divergence confirms that the sampling distribution is non-normal and heavily contaminated by outliers.
+
+## 5. Numerical Output
+
+```{r}
+#| label: cauchy-table
+summary_table <- sim_data %>% 
+  group_by(n) %>% 
+  summarise(
+    Simulated_Mean = mean(sample_mean),
+    Simulated_SD = sd(sample_mean),
+    Skewness = moments::skewness(sample_mean),
+    Kurtosis = moments::kurtosis(sample_mean)
+  )
+
+knitr::kable(
+  summary_table, 
+  caption = "Comparison of Simulated Metrics for Cauchy Population (Note instability due to undefined moments)",
+  digits = 4,
+  align = c("c", "c", "c", "c", "c")
+)
+```
+
+**Simulated Mean:** Fluctuates wildly and remains unstable across simulation runs because the population mean does not exist.
+
+**Simulated SD:** Does not shrink as $n$ increases. In fact, standard deviation calculations become erratic because the variance is infinite.
+
+**Skewness and Kurtosis:** Extreme values and massive kurtosis values highlight the severe heavy-tailed nature of the Cauchy distribution that fails to converge to normality.
+
+## 6. In Summary
+
+**1. What does the original population distribution look like?**
+
+The parent population is a Cauchy Distribution ($x_0 = 0$, $\gamma = 1$), which is continuous, symmetric, and bell-shaped in appearance but possesses extremely heavy tails.
+
+**2. How quickly does the sampling distribution become approximately normal?**
+
+It never becomes normal because the Cauchy distribution violates the finite variance condition, the Central Limit Theorem fails completely. The sampling distribution remains Cauchy-distributed for all sample sizes $n$.
+
+**3. How does the simulated mean compare with the theoretical mean?**
+
+The theoretical mean is undefined. Consequently, the simulated means do not stabilize around a single true value and can be heavily skewed by single extreme random draws.
+
+**4. How does the simulated standard error compare with $\text{SE}(\bar{x}) = \frac{\sigma}{\sqrt{n}}$?**
+
+The formula $\text{SE} = \frac{\sigma}{\sqrt{n}}$ is inapplicable because both population standard deviation ($\sigma$) and standard error are undefined. The simulated dispersion does not shrink as $n$ increases.
+
+**5. What evidence supports your conclusion that the distribution fails to become normal?**
+
+Histograms retain massive spread/spikes with extreme bounds, Q-Q plots show severe tail divergence away from the diagonal line, and numerical metrics like standard deviation fail to decrease with $n$.
+
+**6. What limitations or surprises did you observe?**
+
+The main surprise was the CLT fail, while previous distributions (normal, uniform, exponential) became smooth and narrowed down as $n$ grew, the Cauchy distribution opposed this demonstrating that finite variance is a strict requirement for asymptotic normality.
